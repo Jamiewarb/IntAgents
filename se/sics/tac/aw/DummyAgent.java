@@ -238,14 +238,14 @@ public class DummyAgent extends AgentImpl {
 			int alloc = agent.getAllocation(auction) - agent.getOwn(auction);
 			if (alloc != 0) {
 				Bid bid = new Bid(auction);
-				if (alloc < 0)
+				if (alloc < 0) {
 					if (!isWitchingHour())
 						prices[auction] = 200f - (agent.getGameTime() * 120f) / 720000;
 					else {
 						if (quote.getBidPrice() > 85 || quote.getBidPrice() == 0.0)
 							prices[auction] = 85;
 					}
-				else
+				} else
 					prices[auction] = 50f + (agent.getGameTime() * 100f) / 720000;
 				bid.addBidPoint(alloc, prices[auction]);
 				if (DEBUG) {
@@ -262,6 +262,147 @@ public class DummyAgent extends AgentImpl {
 		log.fine("All quotes for "
 			 + agent.auctionCategoryToString(auctionCategory)
 			 + " has been updated");
+		switch (auctionCategory) {
+			// TODO I think there's a problem with the client interpreting Owned ent prices as 0...? Check
+			case TACAgent.CAT_ENTERTAINMENT:
+				// [[16, 100.1, 80.2, 2], [17, 121.23, 50.664, 4]] - (3) is how many we own
+				ArrayList<ArrayList<Object>> tempEntPrices = new ArrayList<ArrayList<Object>>();
+				ArrayList<ArrayList<ArrayList<Object>>> chosenEntAllocation = new ArrayList<ArrayList<ArrayList<Object>>>();
+				// Fill tempEntPrices with all the entertainment packages with bidPrice > 0
+				for (int i = 0; i < availableEntPrices.size(); i++) {
+					ArrayList<Object> entPrice = availableEntPrices.get(i);
+					int auction = (int)entPrice.get(0); 
+					int own = agent.getOwn(auction);
+					if (own > 0) 
+						entPrice.add(own);
+					else 
+						entPrice.add(0);
+					if ((float)entPrice.get(2) > 0 || own > 0) {
+						tempEntPrices.add(entPrice);
+					}
+				}
+
+				ArrayList<TACClient> clientsNotAllocated = new ArrayList<TACClient>(clientList);
+				int loopGuard = 0;
+				// Get all client's best allocations, and choose most profitable, then update hAvail and repeat until all clients done
+				while (clientsNotAllocated.size() > 0 && loopGuard < 1000) {
+					ArrayList<ArrayList<Object>> nextEntAlloc = new ArrayList<ArrayList<Object>>();
+					TACClient chosenClient = clientsNotAllocated.get(0);
+					for (int i = 0; i < clientsNotAllocated.size(); i++) {
+						// Give the Client the current remaining choices, and ask them to compute greedily best allocation
+						TACClient client = clientsNotAllocated.get(i);
+						ArrayList<ArrayList<Object>> bestEnt = client.calcBestEnt(tempEntPrices);
+						// If there is no next allocation already, or this one is better than other one, set it as chosen one
+						if (nextEntAlloc.size() <= 0 || (float)bestEnt.get(bestEnt.size() - 1).get(0) > (float)nextEntAlloc.get(nextEntAlloc.size() - 1).get(0)) {
+							nextEntAlloc = new ArrayList<ArrayList<Object>>(bestEnt);
+							chosenClient = client;
+						}
+					}
+					System.out.println("LOOPGUARD " + loopGuard + ". nextEntAlloc " + nextEntAlloc);
+					// Tell the client this is it's new allocation
+					chosenClient.setEntAllocation(nextEntAlloc);
+
+					// Remove 1 for each entertainment we allocated that we already own, from the temporary allocation list
+					// Loop is -1 as last element is always total price, we don't care about this, e.g. [[16,177],[177]]
+					for (int i = 0; i < nextEntAlloc.size() - 1; i++) {
+						ArrayList<Object> nE = nextEntAlloc.get(i);
+						// Loop through all temporaryEntPrices and check if we can find the current one
+						// [[16, 100.1, 80.2, 2], [17, 121.23, 50.664, 4]] - (3) is how many we own
+						for (int j = 0; j < tempEntPrices.size(); j++) {
+							ArrayList<Object> tempEnt = tempEntPrices.get(j);
+							if (tempEnt.get(0) == nE.get(0)) {
+								// We found the current one. If it has any owned, minus it
+								int entOwn = (int)tempEnt.get(3);
+								if (entOwn > 0) {
+									tempEntPrices.get(j).set(3, entOwn - 1);
+								}
+							}
+						}
+					}
+
+					// Set allocation within app itself
+					if ((float)nextEntAlloc.get(nextEntAlloc.size() - 1).get(0) > 0)
+						chosenEntAllocation.add(nextEntAlloc);
+
+
+					clientsNotAllocated.remove(clientsNotAllocated.indexOf(chosenClient));
+					loopGuard++;
+				}
+				calcEntAllocation(chosenEntAllocation);
+				// Check size of nextEntAlloc to see if we have any left to allocate
+			break;
+		} 
+	}
+
+	public void calcEntAllocation(ArrayList<ArrayList<ArrayList<Object>>> chosenEntAllocation) {
+		// chosenEntAllocation - [[[20, 162], [162.0]], 
+		//						  [[26, 126], [126.0]], 
+		// 						  [[20, 55], [55.0]]]
+
+		clearEntertainmentsAllocations();
+
+		if (chosenEntAllocation.size() > 0) {
+			for (int alloc = 0; alloc < chosenEntAllocation.size(); alloc++) {
+				ArrayList<ArrayList<Object>> clientEnt = chosenEntAllocation.get(alloc);
+				for (int choices = 0; choices < clientEnt.size() - 1; choices++) { // -1 cause don't need final price
+					for (int prices = 0; prices < availableEntPrices.size(); prices++) {
+						// Find our ent auction no in the list of entertainment prices
+						ArrayList<Object> entPrices = availableEntPrices.get(prices);
+						if (clientEnt.get(choices).get(0) == entPrices.get(0)) {
+							int auction = (int)clientEnt.get(choices).get(0);
+							agent.setAllocation(auction, agent.getAllocation(auction) + 1);
+						}
+					}
+				}
+			}
+		}
+
+		setEntertainmentBids();
+
+	}
+
+	public void setEntertainmentBids() {
+		// TODO potentially you didn't make it sell when bidPrice > e1, but might do it by design...?
+		for (int i = 0; i < agent.getAuctionNo(); i++) { // Go through entertainment auctions
+			int auction = i;
+			if (agent.getAuctionCategory(auction) == TACAgent.CAT_ENTERTAINMENT) {
+				int alloc = agent.getAllocation(auction) - agent.getOwn(auction);
+				float auctionBidPrice = 0f;
+				float auctionAskPrice = 0f;
+				for (int p = 0; p < availableEntPrices.size(); p++) {
+					if ((int)availableEntPrices.get(p).get(0) == auction) {
+						auctionAskPrice = (float)availableEntPrices.get(p).get(1);
+						auctionBidPrice = (float)availableEntPrices.get(p).get(2);
+					}
+				}
+				if (alloc != 0) {
+					Bid bid = new Bid(auction);
+					if (alloc < 0) {
+						if (!isWitchingHour()) {
+							prices[auction] = auctionAskPrice - 1;
+							if (auctionBidPrice > auctionAskPrice - 10)
+								prices[auction] = auctionBidPrice;
+						} else {
+							if (auctionBidPrice > auctionAskPrice - 20)
+								prices[auction] = auctionBidPrice;
+						}
+					} else {
+						prices[auction] = auctionBidPrice + 1;
+					}
+					if (prices[auction] < 0) {
+						System.out.println("prices[auction] " + prices[auction] + " auction" + auction);
+						continue;
+					}
+					bid.addBidPoint(alloc, prices[auction]);
+					if (DEBUG) {
+						log.finest("submitting bid with alloc="
+								 + agent.getAllocation(auction)
+								 + " own=" + agent.getOwn(auction));
+					}
+					agent.submitBid(bid);
+				}
+			}
+		}
 	}
 
 	public void bidUpdated(Bid bid) {
@@ -294,7 +435,7 @@ public class DummyAgent extends AgentImpl {
 
 	public boolean isWitchingHour() {
 		// TODO Implement logic to include network latency here plus time it takes to complete computation cycle twice, if any
-		if (agent.getGameTimeLeft() < 15000) return true;
+		if (agent.getGameTimeLeft() < 30000) return true;
 		else return false;
 	}
 
@@ -308,6 +449,18 @@ public class DummyAgent extends AgentImpl {
 			auction = agent.getAuctionFor(TACAgent.CAT_HOTEL, TACAgent.TYPE_GOOD_HOTEL, d);
 			agent.setAllocation(auction, 0);
 			auction = agent.getAuctionFor(TACAgent.CAT_HOTEL, TACAgent.TYPE_CHEAP_HOTEL, d);
+			agent.setAllocation(auction, 0);
+		}
+	}
+
+	public void clearEntertainmentsAllocations() {
+		int auction;
+		for (int d = 1; d < 5; d++) {
+			auction = agent.getAuctionFor(TACAgent.CAT_ENTERTAINMENT, TACAgent.TYPE_ALLIGATOR_WRESTLING, d);
+			agent.setAllocation(auction, 0);
+			auction = agent.getAuctionFor(TACAgent.CAT_ENTERTAINMENT, TACAgent.TYPE_AMUSEMENT, d);
+			agent.setAllocation(auction, 0);
+			auction = agent.getAuctionFor(TACAgent.CAT_ENTERTAINMENT, TACAgent.TYPE_MUSEUM, d);
 			agent.setAllocation(auction, 0);
 		}
 	}
@@ -455,7 +608,6 @@ public class DummyAgent extends AgentImpl {
 					// We had a problem somehow...
 				}
 				sendBids();
-				// TODO Actually update the bids on the hotels and flights... we just have the allocations
 				// TODO take in to account entertainment costs and fun bonuses, and flight costs
 				// when deciding who to allocate owned hotels to and who to change, for optimum allocation
 			break;

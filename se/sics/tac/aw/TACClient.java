@@ -19,6 +19,7 @@ public class TACClient {
 	public ArrayList<ArrayList<Object>> availableHotelsPrices;
 	public ArrayList<ArrayList<Integer>> bestHotelAlloc;
 	public ArrayList<Integer> setAllocation;
+	public ArrayList<ArrayList<Object>> entAlloc;
 
 	public TACClient(int inFlight, int outFlight, int hotel, int e1, int e2, int e3) {
 		this(inFlight, outFlight, hotel, e1, e2, e3, new ArrayList<Integer>(Arrays.asList(1,2,3,4,11,12,13,14)));
@@ -49,7 +50,114 @@ public class TACClient {
 		allocHotels = new ArrayList<Integer>();
 		allocFlights = new ArrayList<Integer>();
 		allocEnt = new ArrayList<Integer>();
-		bestHotelAlloc = getBestAllocation();
+		bestHotelAlloc = getBestAllocation(); // Assign initial allocation!
+		this.setAllocation = bestHotelAlloc.get(0);
+	}
+
+	// From an Array, calculate my most profitable entertainment allocation
+	// Take in to account that what we own costs 0, and other things cost (float) .get(2)
+	// If bid price is higher than e1/e2/e3, don't include that shit
+	// [[16, 100.1, 80.2, 2], [17, 121.23, 50.664, 4]] - (3) is how many we own
+	public ArrayList<ArrayList<Object>> calcBestEnt(ArrayList<ArrayList<Object>> tempEntPrices) {
+		ArrayList<ArrayList<Object>> finalAllocation = new ArrayList<ArrayList<Object>>();
+
+		int firstDay = setAllocation.get(0);
+		int lastDay = setAllocation.get(setAllocation.size() - 1);
+		// Add a list of available days we can book entertainment on
+		ArrayList<Integer> availableDays = new ArrayList<Integer>();
+		for (int i = firstDay; i < lastDay; i++) {
+			int d = i;
+			if (d > 10)
+				d = d - 10;
+			availableDays.add(d);
+		}
+		// Add a list of available entertainment types we can still book
+		ArrayList<Integer> availableEnt = new ArrayList<Integer>(Arrays.asList(1,2,3));
+		float finalUtility = 0f;
+		int loopGuard = 0;
+
+		// TODO create a while loop to test if we have both availableDays and availableEnt left
+		main_loop:
+		while (availableDays.size() > 0 && availableEnt.size() > 0 && loopGuard < 1000) {
+			int chosenEnt = 0;
+			int chosenEntType = 0;
+			int chosenBonus = 0;
+			int chosenDay = 0;
+			float potentialUtility = 0f; // Total utility profit/loss of a particular entertainment day
+
+			for (int i = 0; i < tempEntPrices.size(); i++) {
+				ArrayList<Object> ent = tempEntPrices.get(i);
+				int testingEnt = 0;
+				float price = 0f; // bidPrice of this entertainment
+				int bonus = 0; // Amount this entertainment gives in utility
+				int auction = (int)ent.get(0);
+				int day = 0;
+
+				switch (auction) {
+					case 16:
+					case 17:
+					case 18:
+					case 19:
+						day = auction - 15;
+						bonus = this.e1;
+						testingEnt = 1;
+						// TACAgent.TYPE_ALLIGATOR_WRESTLING - e1
+						break;
+					case 20:
+					case 21:
+					case 22:
+					case 23:
+						day = auction - 19;
+						bonus = this.e2;
+						testingEnt = 2;
+						// TACAgent.TYPE_AMUSEMENT - e2
+						break;
+					case 24:
+					case 25:
+					case 26:
+					case 27:
+						day = auction - 23;
+						bonus = this.e3;
+						testingEnt = 3;
+						// TACAgent.TYPE_MUSEUM - e3
+						break;
+					default:
+						// Something went wrong, and we've added an auction that isn't entertainment somehow...
+						break main_loop;
+				}
+				if ((int)(ent.get(3)) > 0) 
+					price = 0f;
+				else
+					price = (float)ent.get(2);
+				if (availableDays.contains(day) && availableEnt.contains(testingEnt)) {
+					if ((bonus - price) > potentialUtility) {
+						potentialUtility = bonus - price; // This is the current best utility potential
+						chosenBonus = bonus;
+						chosenEnt = auction; // This is the current best choice
+						chosenDay = day; // The day of the auction, 1,2,3,4
+						chosenEntType = testingEnt; // The type of the ent, 1,2,3
+					}
+				}
+			}
+			if (chosenDay > 0) {
+				finalUtility = finalUtility + potentialUtility;
+				availableDays.remove(availableDays.indexOf(chosenDay));
+				availableEnt.remove(availableEnt.indexOf(chosenEntType));
+				ArrayList<Object> nextAlloc = new ArrayList<Object>(Arrays.asList(chosenEnt, chosenBonus));
+				finalAllocation.add(nextAlloc);
+				loopGuard++;
+			} else {
+				break main_loop;
+			}
+		}
+		// We have our list, so return it
+		finalAllocation.add(new ArrayList<Object>(Arrays.asList(finalUtility)));
+		return finalAllocation;
+	}
+
+	public void setEntAllocation(ArrayList<ArrayList<Object>> nextEntAlloc) {
+		// nextEntAlloc - [[24, 169], [17, 105], [22, 96], [307.3331]]
+		this.entAlloc = nextEntAlloc;
 	}
 
 	public void setHotelPrice(int hotel, float price) {
