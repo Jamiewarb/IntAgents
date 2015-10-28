@@ -298,7 +298,6 @@ public class DummyAgent extends AgentImpl {
 							chosenClient = client;
 						}
 					}
-					System.out.println("LOOPGUARD " + loopGuard + ". nextEntAlloc " + nextEntAlloc);
 					// Tell the client this is it's new allocation
 					chosenClient.setEntAllocation(nextEntAlloc);
 
@@ -380,17 +379,16 @@ public class DummyAgent extends AgentImpl {
 					if (alloc < 0) {
 						if (!isWitchingHour()) {
 							prices[auction] = auctionAskPrice - 1;
-							if (auctionBidPrice > auctionAskPrice - 10)
+							if (auctionBidPrice > auctionAskPrice - 10 && auctionBidPrice > 50)
 								prices[auction] = auctionBidPrice;
 						} else {
-							if (auctionBidPrice > auctionAskPrice - 20)
+							if (auctionBidPrice > auctionAskPrice - 20 && auctionBidPrice > 30)
 								prices[auction] = auctionBidPrice;
 						}
 					} else {
 						prices[auction] = auctionBidPrice + 1;
 					}
 					if (prices[auction] < 0) {
-						System.out.println("prices[auction] " + prices[auction] + " auction" + auction);
 						continue;
 					}
 					bid.addBidPoint(alloc, prices[auction]);
@@ -441,6 +439,10 @@ public class DummyAgent extends AgentImpl {
 
 	public void gameStopped() {
 		log.fine("Game Stopped!");
+	}
+
+	public void transaction(Transaction transaction) {
+		System.out.println(transaction.getAuction() + " " + transaction.getPrice());
 	}
 
 	public void clearHotelAllocations() {
