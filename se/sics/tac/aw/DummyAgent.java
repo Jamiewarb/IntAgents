@@ -442,7 +442,7 @@ public class DummyAgent extends AgentImpl {
 	}
 
 	public void transaction(Transaction transaction) {
-		System.out.println(transaction.getAuction() + " " + transaction.getPrice());
+		
 	}
 
 	public void clearHotelAllocations() {
